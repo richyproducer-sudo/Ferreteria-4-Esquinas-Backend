@@ -78,11 +78,10 @@ router.post('/login', authLimiter, async function (req, res) {
     const email = String((req.body && req.body.email) || '').trim().toLowerCase();
     const password = String((req.body && req.body.password) || '');
 
-    const captcha = await verifyRecaptcha(req.body && req.body.recaptcha_token, 'login');
-    if (!captcha.ok) {
-      return res.status(400).json({ ok: false, error: 'No pudimos verificar que eres una persona. Intenta de nuevo.' });
-    }
-
+    // El login no exige reCAPTCHA: lo usan tambien admin.html/superadmin.html (sin ese
+    // widget) y ya esta protegido por el limite de intentos (authLimiter) mas arriba.
+    // El registro y el envio de cotizaciones si lo exigen, que es donde de verdad
+    // importa frenar spam/bots anonimos.
     const emailHash = hashForLookup(email);
     const result = await pool.query('SELECT * FROM users WHERE email_hash = $1', [emailHash]);
     const row = result.rows[0];
