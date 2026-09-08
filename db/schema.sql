@@ -9,9 +9,10 @@ CREATE TABLE IF NOT EXISTS users (
   email_hash TEXT UNIQUE NOT NULL,
   password_hash TEXT,
   google_sub TEXT UNIQUE,
+  apple_sub TEXT UNIQUE,
   role TEXT NOT NULL DEFAULT 'customer' CHECK (role IN ('customer','admin')),
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-  CHECK (password_hash IS NOT NULL OR google_sub IS NOT NULL)
+  CHECK (password_hash IS NOT NULL OR google_sub IS NOT NULL OR apple_sub IS NOT NULL)
 );
 
 CREATE TABLE IF NOT EXISTS products (

@@ -3,6 +3,7 @@ const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const rateLimit = require('express-rate-limit');
 const { OAuth2Client } = require('google-auth-library');
+const { verifyAppleIdToken } = require('../services/apple');
 const pool = require('../../db/pool');
 const { encrypt, decrypt, hashForLookup } = require('../services/crypto');
 
@@ -136,6 +137,57 @@ router.post('/google', authLimiter, async function (req, res) {
   } catch (err) {
     console.error('google auth error:', err.message);
     res.status(401).json({ ok: false, error: 'No se pudo verificar la cuenta de Google.' });
+  }
+});
+
+router.post('/apple', authLimiter, async function (req, res) {
+  try {
+    if (!process.env.APPLE_CLIENT_ID) {
+      return res.status(503).json({ ok: false, error: 'El inicio de sesion con Apple no esta configurado todavia.' });
+    }
+    const idToken = req.body && req.body.id_token;
+    if (!idToken) {
+      return res.status(400).json({ ok: false, error: 'Falta el token de Apple.' });
+    }
+
+    const payload = await verifyAppleIdToken(idToken);
+    if (!payload || !payload.sub) {
+      return res.status(401).json({ ok: false, error: 'No se pudo verificar la cuenta de Apple.' });
+    }
+
+    const appleSub = String(payload.sub);
+    // Apple solo manda el correo real (o el de retransmision privada) la primera vez que
+    // el usuario autoriza la app; en inicios de sesion posteriores no vuelve a mandarlo.
+    const email = payload.email ? String(payload.email).trim().toLowerCase() : null;
+    const nameFromClient = req.body && req.body.name ? String(req.body.name).trim().slice(0, 120) : '';
+
+    let row;
+    const bySub = await pool.query('SELECT * FROM users WHERE apple_sub = $1', [appleSub]);
+    if (bySub.rows.length > 0) {
+      row = bySub.rows[0];
+    } else if (email) {
+      const emailHash = hashForLookup(email);
+      const byEmail = await pool.query('SELECT * FROM users WHERE email_hash = $1', [emailHash]);
+      if (byEmail.rows.length > 0) {
+        const linked = await pool.query('UPDATE users SET apple_sub = $1 WHERE id = $2 RETURNING *', [appleSub, byEmail.rows[0].id]);
+        row = linked.rows[0];
+      } else {
+        const name = nameFromClient || email.split('@')[0];
+        const inserted = await pool.query(
+          `INSERT INTO users (name, email, email_hash, apple_sub, role) VALUES ($1, $2, $3, $4, 'customer') RETURNING *`,
+          [encrypt(name), encrypt(email), emailHash, appleSub]
+        );
+        row = inserted.rows[0];
+      }
+    } else {
+      return res.status(400).json({ ok: false, error: 'No se pudo completar el inicio de sesion con Apple. Si ya tienes cuenta, entra con tu correo.' });
+    }
+
+    const user = toPublicUser(row);
+    res.json({ ok: true, token: signToken(user), user });
+  } catch (err) {
+    console.error('apple auth error:', err.message);
+    res.status(401).json({ ok: false, error: 'No se pudo verificar la cuenta de Apple.' });
   }
 });
 
