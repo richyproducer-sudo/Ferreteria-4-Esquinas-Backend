@@ -5,6 +5,7 @@ const cors = require('cors');
 const authRoutes = require('./routes/auth');
 const productRoutes = require('./routes/products');
 const quoteRoutes = require('./routes/quotes');
+const staffRoutes = require('./routes/staff');
 
 const app = express();
 
@@ -34,6 +35,7 @@ app.get('/api/health', function (req, res) {
 app.use('/api/auth', authRoutes);
 app.use('/api/products', productRoutes);
 app.use('/api/quotes', quoteRoutes);
+app.use('/api/staff', staffRoutes);
 
 app.use(function (req, res) {
   res.status(404).json({ ok: false, error: 'Ruta no encontrada.' });

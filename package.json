@@ -13,7 +13,8 @@
     "seed:products": "node db/seed-products.js",
     "seed:admin": "node db/seed-admin.js",
     "migrate:encrypt": "node db/migrate-encrypt.js",
-    "migrate:apple": "node db/migrate-apple.js"
+    "migrate:apple": "node db/migrate-apple.js",
+    "migrate:superadmin": "node db/migrate-superadmin.js"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",

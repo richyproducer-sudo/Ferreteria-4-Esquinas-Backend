@@ -4,6 +4,7 @@ const jwt = require('jsonwebtoken');
 const rateLimit = require('express-rate-limit');
 const { OAuth2Client } = require('google-auth-library');
 const { verifyAppleIdToken } = require('../services/apple');
+const { verifyRecaptcha } = require('../services/recaptcha');
 const pool = require('../../db/pool');
 const { encrypt, decrypt, hashForLookup } = require('../services/crypto');
 
@@ -47,6 +48,11 @@ router.post('/register', authLimiter, async function (req, res) {
       return res.status(400).json({ ok: false, error: 'Nombre, correo valido y contraseña de al menos 8 caracteres son obligatorios.' });
     }
 
+    const captcha = await verifyRecaptcha(req.body && req.body.recaptcha_token, 'register');
+    if (!captcha.ok) {
+      return res.status(400).json({ ok: false, error: 'No pudimos verificar que eres una persona. Intenta de nuevo.' });
+    }
+
     const emailHash = hashForLookup(email);
     const existing = await pool.query('SELECT id FROM users WHERE email_hash = $1', [emailHash]);
     if (existing.rows.length > 0) {
@@ -72,11 +78,19 @@ router.post('/login', authLimiter, async function (req, res) {
     const email = String((req.body && req.body.email) || '').trim().toLowerCase();
     const password = String((req.body && req.body.password) || '');
 
+    const captcha = await verifyRecaptcha(req.body && req.body.recaptcha_token, 'login');
+    if (!captcha.ok) {
+      return res.status(400).json({ ok: false, error: 'No pudimos verificar que eres una persona. Intenta de nuevo.' });
+    }
+
     const emailHash = hashForLookup(email);
     const result = await pool.query('SELECT * FROM users WHERE email_hash = $1', [emailHash]);
     const row = result.rows[0];
     if (!row || !row.password_hash) {
       return res.status(401).json({ ok: false, error: 'Correo o contraseña incorrectos.' });
+    }
+    if (row.active === false) {
+      return res.status(403).json({ ok: false, error: 'Esta cuenta esta desactivada.' });
     }
 
     const match = await bcrypt.compare(password, row.password_hash);
@@ -132,6 +146,10 @@ router.post('/google', authLimiter, async function (req, res) {
       }
     }
 
+    if (row.active === false) {
+      return res.status(403).json({ ok: false, error: 'Esta cuenta esta desactivada.' });
+    }
+
     const user = toPublicUser(row);
     res.json({ ok: true, token: signToken(user), user });
   } catch (err) {
@@ -181,6 +199,10 @@ router.post('/apple', authLimiter, async function (req, res) {
       }
     } else {
       return res.status(400).json({ ok: false, error: 'No se pudo completar el inicio de sesion con Apple. Si ya tienes cuenta, entra con tu correo.' });
+    }
+
+    if (row.active === false) {
+      return res.status(403).json({ ok: false, error: 'Esta cuenta esta desactivada.' });
     }
 
     const user = toPublicUser(row);

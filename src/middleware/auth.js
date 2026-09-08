@@ -17,8 +17,17 @@ function requireAuth(req, res, next) {
 
 function requireAdmin(req, res, next) {
   requireAuth(req, res, function () {
-    if (req.user.role !== 'admin') {
+    if (req.user.role !== 'admin' && req.user.role !== 'superadmin') {
       return res.status(403).json({ ok: false, error: 'No tienes permisos de administrador.' });
+    }
+    next();
+  });
+}
+
+function requireSuperAdmin(req, res, next) {
+  requireAuth(req, res, function () {
+    if (req.user.role !== 'superadmin') {
+      return res.status(403).json({ ok: false, error: 'No tienes permisos de super administrador.' });
     }
     next();
   });
@@ -38,4 +47,4 @@ function optionalAuth(req, res, next) {
   next();
 }
 
-module.exports = { requireAuth, requireAdmin, optionalAuth };
+module.exports = { requireAuth, requireAdmin, requireSuperAdmin, optionalAuth };

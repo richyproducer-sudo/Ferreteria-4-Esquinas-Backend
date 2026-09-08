@@ -4,6 +4,7 @@ const pool = require('../../db/pool');
 const { requireAdmin, requireAuth, optionalAuth } = require('../middleware/auth');
 const alegra = require('../services/alegra');
 const { encrypt, decrypt } = require('../services/crypto');
+const { verifyRecaptcha } = require('../services/recaptcha');
 
 const router = express.Router();
 
@@ -37,6 +38,11 @@ router.post('/', quoteLimiter, optionalAuth, async function (req, res) {
     }
     if (items.length === 0) {
       return res.status(400).json({ ok: false, error: 'La cotizacion no tiene productos.' });
+    }
+
+    const captcha = await verifyRecaptcha(b.recaptcha_token, 'quote');
+    if (!captcha.ok) {
+      return res.status(400).json({ ok: false, error: 'No pudimos verificar que eres una persona. Intenta de nuevo.' });
     }
 
     // Nunca confiar en el precio que manda el cliente: se recalcula desde la base de datos.
