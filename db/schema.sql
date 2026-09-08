@@ -1,10 +1,17 @@
+-- name y email se guardan CIFRADOS (AES-256-GCM, ver src/services/crypto.js), nunca en
+-- texto plano. email_hash es un HMAC determinista del correo (en minusculas) que permite
+-- buscar/city un usuario por correo sin tener que descifrar toda la tabla ni guardar el
+-- correo real de forma reversible con una simple consulta SQL.
 CREATE TABLE IF NOT EXISTS users (
   id SERIAL PRIMARY KEY,
   name TEXT NOT NULL,
-  email TEXT UNIQUE NOT NULL,
-  password_hash TEXT NOT NULL,
+  email TEXT NOT NULL,
+  email_hash TEXT UNIQUE NOT NULL,
+  password_hash TEXT,
+  google_sub TEXT UNIQUE,
   role TEXT NOT NULL DEFAULT 'customer' CHECK (role IN ('customer','admin')),
-  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  CHECK (password_hash IS NOT NULL OR google_sub IS NOT NULL)
 );
 
 CREATE TABLE IF NOT EXISTS products (
@@ -23,6 +30,8 @@ CREATE TABLE IF NOT EXISTS products (
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
+-- customer_name/phone/email tambien van cifrados (misma razon que en users) — un pedido
+-- de cotizacion de un cliente que ni siquiera se registro sigue siendo un dato personal.
 CREATE TABLE IF NOT EXISTS quotes (
   id SERIAL PRIMARY KEY,
   user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,

@@ -3,8 +3,17 @@ const rateLimit = require('express-rate-limit');
 const pool = require('../../db/pool');
 const { requireAdmin, requireAuth, optionalAuth } = require('../middleware/auth');
 const alegra = require('../services/alegra');
+const { encrypt, decrypt } = require('../services/crypto');
 
 const router = express.Router();
+
+function decryptQuoteRow(q) {
+  return Object.assign({}, q, {
+    customer_name: decrypt(q.customer_name),
+    customer_phone: decrypt(q.customer_phone),
+    customer_email: q.customer_email ? decrypt(q.customer_email) : null
+  });
+}
 
 const quoteLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
@@ -56,7 +65,7 @@ router.post('/', quoteLimiter, optionalAuth, async function (req, res) {
     const quoteResult = await client.query(
       `INSERT INTO quotes (user_id, customer_name, customer_phone, customer_email, subtotal)
        VALUES ($1,$2,$3,$4,$5) RETURNING id`,
-      [userId, customerName, customerPhone, customerEmail, subtotal]
+      [userId, encrypt(customerName), encrypt(customerPhone), customerEmail ? encrypt(customerEmail) : null, subtotal]
     );
     const quoteId = quoteResult.rows[0].id;
 
@@ -111,7 +120,7 @@ router.get('/mine', requireAuth, async function (req, res) {
       itemsByQuote[it.quote_id] = itemsByQuote[it.quote_id] || [];
       itemsByQuote[it.quote_id].push(it);
     });
-    const result = quotes.rows.map(function (q) { return { ...q, items: itemsByQuote[q.id] || [] }; });
+    const result = quotes.rows.map(function (q) { return Object.assign(decryptQuoteRow(q), { items: itemsByQuote[q.id] || [] }); });
     res.json({ ok: true, quotes: result });
   } catch (err) {
     console.error('list my quotes error:', err.message);
@@ -134,7 +143,7 @@ router.get('/', requireAdmin, async function (req, res) {
     });
 
     const result = quotes.rows.map(function (q) {
-      return { ...q, items: itemsByQuote[q.id] || [] };
+      return Object.assign(decryptQuoteRow(q), { items: itemsByQuote[q.id] || [] });
     });
 
     res.json({ ok: true, quotes: result });

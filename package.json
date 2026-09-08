@@ -11,7 +11,8 @@
     "start": "node src/server.js",
     "migrate": "node db/migrate.js",
     "seed:products": "node db/seed-products.js",
-    "seed:admin": "node db/seed-admin.js"
+    "seed:admin": "node db/seed-admin.js",
+    "migrate:encrypt": "node db/migrate-encrypt.js"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",
@@ -19,6 +20,7 @@
     "dotenv": "^16.4.5",
     "express": "^4.19.2",
     "express-rate-limit": "^7.4.0",
+    "google-auth-library": "^11.0.2",
     "jsonwebtoken": "^9.0.2",
     "pg": "^8.12.0"
   }
