@@ -1,0 +1,24 @@
+services:
+  - type: web
+    name: ferreteria-4-esquinas-backend
+    runtime: node
+    plan: free
+    buildCommand: npm install
+    startCommand: node src/server.js
+    envVars:
+      - key: DATABASE_URL
+        sync: false
+      - key: JWT_SECRET
+        generateValue: true
+      - key: ADMIN_NAME
+        value: Administrador
+      - key: ADMIN_EMAIL
+        sync: false
+      - key: ADMIN_PASSWORD
+        sync: false
+      - key: ALEGRA_EMAIL
+        sync: false
+      - key: ALEGRA_TOKEN
+        sync: false
+      - key: CORS_ORIGIN
+        value: https://richyproducer-sudo.github.io
