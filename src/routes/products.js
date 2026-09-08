@@ -16,6 +16,16 @@ function slugify(text) {
     .slice(0, 80);
 }
 
+// image_url acepta tanto un link normal (http/https) como una foto subida desde
+// el panel, guardada como data URI en base64 — por eso el limite es mucho mas
+// alto que el de los demas campos de texto.
+function sanitizeImageUrl(value) {
+  if (!value) return null;
+  const str = String(value).trim();
+  if (!str) return null;
+  return str.slice(0, 3000000);
+}
+
 router.get('/', async function (req, res) {
   try {
     const result = await pool.query(
@@ -37,7 +47,7 @@ router.post('/', requireAdmin, async function (req, res) {
     const unit = String(b.unit || 'unidad').trim().slice(0, 40);
     const price = Number(b.price);
     const description = String(b.description || '').slice(0, 2000);
-    const imageUrl = b.image_url ? String(b.image_url).slice(0, 2000) : null;
+    const imageUrl = sanitizeImageUrl(b.image_url);
     const icon = String(b.icon || 'herramienta').trim().slice(0, 40);
     const stockStatus = ['in', 'low', 'out'].includes(b.stock_status) ? b.stock_status : 'in';
 
@@ -72,7 +82,7 @@ router.put('/:id', requireAdmin, async function (req, res) {
     const unit = String(b.unit || 'unidad').trim().slice(0, 40);
     const price = Number(b.price);
     const description = String(b.description || '').slice(0, 2000);
-    const imageUrl = b.image_url ? String(b.image_url).slice(0, 2000) : null;
+    const imageUrl = sanitizeImageUrl(b.image_url);
     const icon = String(b.icon || 'herramienta').trim().slice(0, 40);
     const stockStatus = ['in', 'low', 'out'].includes(b.stock_status) ? b.stock_status : 'in';
     const active = b.active !== false;

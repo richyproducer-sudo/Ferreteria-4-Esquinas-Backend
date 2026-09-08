@@ -8,7 +8,9 @@ const quoteRoutes = require('./routes/quotes');
 
 const app = express();
 
-app.use(express.json({ limit: '200kb' }));
+// El limite es mas alto que lo usual porque las fotos de producto subidas desde
+// el panel de administrador viajan como imagen codificada en base64 dentro del JSON.
+app.use(express.json({ limit: '4mb' }));
 
 const allowedOrigins = (process.env.CORS_ORIGIN || '')
   .split(',')
