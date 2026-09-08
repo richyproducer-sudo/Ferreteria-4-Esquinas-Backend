@@ -1,10 +1,12 @@
 const express = require('express');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
+const nodeCrypto = require('crypto');
 const rateLimit = require('express-rate-limit');
 const { OAuth2Client } = require('google-auth-library');
 const { verifyAppleIdToken } = require('../services/apple');
 const { verifyRecaptcha } = require('../services/recaptcha');
+const { sendMail } = require('../services/mailer');
 const pool = require('../../db/pool');
 const { encrypt, decrypt, hashForLookup } = require('../services/crypto');
 
@@ -18,7 +20,20 @@ const authLimiter = rateLimit({
   message: { ok: false, error: 'Demasiados intentos. Intenta de nuevo en unos minutos.' }
 });
 
+const forgotPasswordLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 6,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { ok: false, error: 'Demasiadas solicitudes. Intenta de nuevo en unos minutos.' }
+});
+
 const googleClient = process.env.GOOGLE_CLIENT_ID ? new OAuth2Client(process.env.GOOGLE_CLIENT_ID) : null;
+
+function buildResetUrl(token) {
+  const base = process.env.FRONTEND_URL || 'https://richyproducer-sudo.github.io/Ferreteria-4-Esquinas/';
+  return base + (base.includes('?') ? '&' : '?') + 'reset=' + token;
+}
 
 function signToken(user) {
   return jwt.sign(
@@ -209,6 +224,83 @@ router.post('/apple', authLimiter, async function (req, res) {
   } catch (err) {
     console.error('apple auth error:', err.message);
     res.status(401).json({ ok: false, error: 'No se pudo verificar la cuenta de Apple.' });
+  }
+});
+
+router.post('/forgot-password', forgotPasswordLimiter, async function (req, res) {
+  // Respuesta SIEMPRE generica (mismo mensaje exista o no la cuenta) para no revelar
+  // por este medio que correos estan registrados.
+  const genericResponse = { ok: true, message: 'Si ese correo tiene una cuenta, te enviamos un enlace para restablecer la contraseña.' };
+  try {
+    const email = String((req.body && req.body.email) || '').trim().toLowerCase();
+    if (!isValidEmail(email)) {
+      return res.status(400).json({ ok: false, error: 'Ingresa un correo valido.' });
+    }
+
+    const captcha = await verifyRecaptcha(req.body && req.body.recaptcha_token, 'forgot_password');
+    if (!captcha.ok) {
+      return res.status(400).json({ ok: false, error: 'No pudimos verificar que eres una persona. Intenta de nuevo.' });
+    }
+
+    const emailHash = hashForLookup(email);
+    const result = await pool.query('SELECT id, name, password_hash, active FROM users WHERE email_hash = $1', [emailHash]);
+    const row = result.rows[0];
+
+    // Solo se genera un enlace real si la cuenta existe, tiene contraseña (no es
+    // solo-Google/Apple) y esta activa — pero la respuesta al cliente es la misma
+    // en cualquier caso.
+    if (row && row.password_hash && row.active !== false) {
+      const rawToken = nodeCrypto.randomBytes(32).toString('hex');
+      const tokenHash = nodeCrypto.createHash('sha256').update(rawToken).digest('hex');
+      const expiresAt = new Date(Date.now() + 60 * 60 * 1000);
+      await pool.query(
+        'INSERT INTO password_resets (user_id, token_hash, expires_at) VALUES ($1,$2,$3)',
+        [row.id, tokenHash, expiresAt]
+      );
+
+      const resetUrl = buildResetUrl(rawToken);
+      const name = decrypt(row.name);
+      await sendMail({
+        to: email,
+        subject: 'Recupera tu contraseña — Ferretería 4 Esquinas',
+        text: 'Hola ' + name + ',\n\nRecibimos una solicitud para restablecer tu contraseña. Entra a este enlace (valido por 1 hora):\n' + resetUrl + '\n\nSi no fuiste tú, ignora este correo.',
+        html: '<p>Hola ' + name + ',</p><p>Recibimos una solicitud para restablecer tu contraseña. Este enlace es valido por 1 hora:</p><p><a href="' + resetUrl + '">' + resetUrl + '</a></p><p>Si no fuiste tú, ignora este correo.</p>'
+      });
+    }
+
+    res.json(genericResponse);
+  } catch (err) {
+    console.error('forgot-password error:', err.message);
+    res.json(genericResponse);
+  }
+});
+
+router.post('/reset-password', authLimiter, async function (req, res) {
+  try {
+    const token = String((req.body && req.body.token) || '');
+    const password = String((req.body && req.body.password) || '');
+    if (!token || password.length < 8) {
+      return res.status(400).json({ ok: false, error: 'Enlace invalido o contraseña demasiado corta (minimo 8 caracteres).' });
+    }
+
+    const tokenHash = nodeCrypto.createHash('sha256').update(token).digest('hex');
+    const result = await pool.query(
+      'SELECT * FROM password_resets WHERE token_hash = $1 AND used = false AND expires_at > now()',
+      [tokenHash]
+    );
+    const resetRow = result.rows[0];
+    if (!resetRow) {
+      return res.status(400).json({ ok: false, error: 'Este enlace ya no es valido. Solicita uno nuevo.' });
+    }
+
+    const passwordHash = await bcrypt.hash(password, 12);
+    await pool.query('UPDATE users SET password_hash = $1 WHERE id = $2', [passwordHash, resetRow.user_id]);
+    await pool.query('UPDATE password_resets SET used = true WHERE id = $1', [resetRow.id]);
+
+    res.json({ ok: true, message: 'Contraseña actualizada. Ya puedes iniciar sesion.' });
+  } catch (err) {
+    console.error('reset-password error:', err.message);
+    res.status(500).json({ ok: false, error: 'No se pudo restablecer la contraseña.' });
   }
 });
 

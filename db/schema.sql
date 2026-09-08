@@ -56,6 +56,19 @@ CREATE TABLE IF NOT EXISTS quote_items (
   qty INTEGER NOT NULL CHECK (qty > 0)
 );
 
+-- El token real solo se manda por correo; aqui se guarda su hash SHA-256, nunca el
+-- valor en claro, para que ni siquiera con acceso a la base de datos se pueda usar
+-- un enlace de recuperacion ya emitido.
+CREATE TABLE IF NOT EXISTS password_resets (
+  id SERIAL PRIMARY KEY,
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  token_hash TEXT UNIQUE NOT NULL,
+  expires_at TIMESTAMPTZ NOT NULL,
+  used BOOLEAN NOT NULL DEFAULT false,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
 CREATE INDEX IF NOT EXISTS idx_quote_items_quote_id ON quote_items(quote_id);
 CREATE INDEX IF NOT EXISTS idx_products_category ON products(category);
 CREATE INDEX IF NOT EXISTS idx_quotes_created_at ON quotes(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_password_resets_user_id ON password_resets(user_id);
