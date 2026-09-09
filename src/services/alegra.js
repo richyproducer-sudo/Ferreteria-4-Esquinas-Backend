@@ -5,6 +5,13 @@
 
 const ALEGRA_BASE = 'https://api.alegra.com/api/v1';
 
+// Colombia (DIAN) exige un tipo/numero de identificacion para poder crear un
+// contacto. Como no le pedimos cedula/NIT a los clientes del sitio (solo
+// nombre y telefono), se usa el contacto generico "Consumidor Final" que
+// Alegra ya trae por defecto en toda cuenta colombiana — el nombre y telefono
+// reales del cliente quedan en las observaciones de la cotizacion.
+const CONSUMIDOR_FINAL_ID_NUMBER = '222222222222';
+
 function isConfigured() {
   return Boolean(process.env.ALEGRA_EMAIL && process.env.ALEGRA_TOKEN);
 }
@@ -32,20 +39,16 @@ async function alegraFetch(path, options) {
   return data;
 }
 
-async function findOrCreateContact({ name, phone, email }) {
-  const query = new URLSearchParams({ name }).toString();
+async function getConsumidorFinal() {
+  const query = new URLSearchParams({ identification: CONSUMIDOR_FINAL_ID_NUMBER }).toString();
   const found = await alegraFetch('/contacts?' + query, { method: 'GET' });
   if (Array.isArray(found) && found.length > 0) {
     return found[0];
   }
+  // No debería faltar (Alegra la trae por defecto), pero por si acaso se crea.
   return alegraFetch('/contacts', {
     method: 'POST',
-    body: JSON.stringify({
-      name,
-      type: ['client'],
-      mobile: phone,
-      email: email || undefined
-    })
+    body: JSON.stringify({ name: 'Consumidor Final', type: ['client'], identification: CONSUMIDOR_FINAL_ID_NUMBER })
   });
 }
 
@@ -65,16 +68,20 @@ async function findOrCreateItem({ name, price }) {
   });
 }
 
+function formatDate(d) {
+  return d.toISOString().slice(0, 10);
+}
+
 /**
  * Crea una cotizacion (estimate) en Alegra a partir de una cotizacion local.
- * Retorna { id } de Alegra o null si Alegra no esta configurado.
+ * Retorna el estimate creado, o null si Alegra no esta configurado.
  * Cualquier error se propaga para que el caller decida como registrarlo,
  * pero nunca debe impedir que la cotizacion local ya se haya guardado.
  */
 async function syncQuoteToAlegra({ customerName, customerPhone, customerEmail, items }) {
   if (!isConfigured()) return null;
 
-  const contact = await findOrCreateContact({ name: customerName, phone: customerPhone, email: customerEmail });
+  const contact = await getConsumidorFinal();
 
   const alegraItems = [];
   for (const item of items) {
@@ -86,11 +93,19 @@ async function syncQuoteToAlegra({ customerName, customerPhone, customerEmail, i
     });
   }
 
+  const today = new Date();
+  const dueDate = new Date(today.getTime() + 7 * 24 * 60 * 60 * 1000);
+  const observationsParts = ['Cliente: ' + customerName, 'Tel: ' + customerPhone];
+  if (customerEmail) observationsParts.push('Correo: ' + customerEmail);
+
   const estimate = await alegraFetch('/estimates', {
     method: 'POST',
     body: JSON.stringify({
       client: { id: contact.id },
-      items: alegraItems
+      date: formatDate(today),
+      dueDate: formatDate(dueDate),
+      items: alegraItems,
+      observations: observationsParts.join(' | ')
     })
   });
 
