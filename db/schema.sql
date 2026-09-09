@@ -11,6 +11,9 @@ CREATE TABLE IF NOT EXISTS users (
   google_sub TEXT UNIQUE,
   apple_sub TEXT UNIQUE,
   role TEXT NOT NULL DEFAULT 'customer' CHECK (role IN ('customer','admin','superadmin')),
+  -- Puesto de trabajo (Cajero, Bodega, Dueño, etc.) — es solo una etiqueta organizativa,
+  -- libre de escribir; el nivel de permisos real sigue siendo "role" (admin/superadmin).
+  job_title TEXT,
   active BOOLEAN NOT NULL DEFAULT true,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   CHECK (password_hash IS NOT NULL OR google_sub IS NOT NULL OR apple_sub IS NOT NULL)
