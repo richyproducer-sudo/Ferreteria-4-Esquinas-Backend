@@ -62,6 +62,13 @@ CREATE TABLE IF NOT EXISTS quotes (
   -- Seguimiento del despacho fisico, independiente del estado comercial de arriba.
   dispatch_status TEXT NOT NULL DEFAULT 'pendiente' CHECK (dispatch_status IN ('pendiente','preparando','despachado','entregado')),
   dispatch_updated_at TIMESTAMPTZ,
+  -- Codigo de verificacion de entrega: solo se guarda su hash SHA-256 (igual que
+  -- password_resets); el codigo real solo lo tiene el cliente, se lo dan por WhatsApp
+  -- al iniciar la entrega y se lo debe repetir al repartidor para poder finalizarla.
+  delivery_code_hash TEXT,
+  delivery_code_attempts INTEGER NOT NULL DEFAULT 0,
+  delivery_started_at TIMESTAMPTZ,
+  delivered_at TIMESTAMPTZ,
   alegra_estimate_id TEXT,
   alegra_synced BOOLEAN NOT NULL DEFAULT false,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()

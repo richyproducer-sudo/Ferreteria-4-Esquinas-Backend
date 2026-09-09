@@ -1,4 +1,5 @@
 const express = require('express');
+const nodeCrypto = require('crypto');
 const rateLimit = require('express-rate-limit');
 const pool = require('../../db/pool');
 const { requireAdmin, requireAuth, optionalAuth } = require('../middleware/auth');
@@ -192,6 +193,82 @@ router.put('/:id/dispatch-status', requireAdmin, async function (req, res) {
   } catch (err) {
     console.error('update dispatch status error:', err.message);
     res.status(500).json({ ok: false, error: 'No se pudo actualizar el despacho.' });
+  }
+});
+
+function hashDeliveryCode(code) {
+  return nodeCrypto.createHash('sha256').update(String(code)).digest('hex');
+}
+
+// Se escanea el codigo QR/barras del pedido para identificarlo y arrancar la
+// entrega: genera un codigo de 6 digitos (solo se guarda su hash), pone el pedido
+// en "despachado" y regresa el codigo en claro UNA vez para que el panel arme el
+// mensaje de WhatsApp — nunca se vuelve a poder leer despues de esta respuesta.
+router.post('/:id/start-delivery', requireAdmin, async function (req, res) {
+  try {
+    const id = Number(req.params.id);
+    if (!Number.isInteger(id)) return res.status(400).json({ ok: false, error: 'Id invalido.' });
+
+    const existing = await pool.query('SELECT * FROM quotes WHERE id = $1', [id]);
+    const row = existing.rows[0];
+    if (!row) return res.status(404).json({ ok: false, error: 'Cotizacion no encontrada.' });
+    if (row.status !== 'confirmada') {
+      return res.status(400).json({ ok: false, error: 'Solo se puede iniciar la entrega de pedidos confirmados.' });
+    }
+    if (row.dispatch_status === 'despachado' || row.dispatch_status === 'entregado') {
+      return res.status(400).json({ ok: false, error: 'Este pedido ya tiene una entrega en curso o finalizada.' });
+    }
+
+    const code = String(nodeCrypto.randomInt(0, 1000000)).padStart(6, '0');
+    const updated = await pool.query(
+      `UPDATE quotes SET dispatch_status = 'despachado', dispatch_updated_at = now(),
+        delivery_code_hash = $1, delivery_code_attempts = 0, delivery_started_at = now()
+       WHERE id = $2 RETURNING *`,
+      [hashDeliveryCode(code), id]
+    );
+
+    const quote = decryptQuoteRow(updated.rows[0]);
+    res.json({ ok: true, quote: quote, delivery_code: code });
+  } catch (err) {
+    console.error('start delivery error:', err.message);
+    res.status(500).json({ ok: false, error: 'No se pudo iniciar la entrega.' });
+  }
+});
+
+// Se escanea el pedido de nuevo (o se busca en la lista) y el repartidor escribe
+// el codigo que le dio el cliente. 5 intentos fallidos bloquean el codigo por
+// seguridad (con 6 digitos, adivinarlo a ciegas es practicamente imposible).
+router.post('/:id/finish-delivery', requireAdmin, async function (req, res) {
+  try {
+    const id = Number(req.params.id);
+    const code = String((req.body && req.body.code) || '').trim();
+    if (!Number.isInteger(id) || !code) return res.status(400).json({ ok: false, error: 'Falta el codigo.' });
+
+    const existing = await pool.query('SELECT * FROM quotes WHERE id = $1', [id]);
+    const row = existing.rows[0];
+    if (!row) return res.status(404).json({ ok: false, error: 'Cotizacion no encontrada.' });
+    if (row.dispatch_status !== 'despachado' || !row.delivery_code_hash) {
+      return res.status(400).json({ ok: false, error: 'Este pedido no tiene una entrega en curso.' });
+    }
+    if (row.delivery_code_attempts >= 5) {
+      return res.status(429).json({ ok: false, error: 'Demasiados intentos fallidos. Pide al cliente confirmar el pedido de nuevo con la ferreteria.' });
+    }
+
+    if (hashDeliveryCode(code) !== row.delivery_code_hash) {
+      await pool.query('UPDATE quotes SET delivery_code_attempts = delivery_code_attempts + 1 WHERE id = $1', [id]);
+      return res.status(400).json({ ok: false, error: 'Codigo incorrecto.' });
+    }
+
+    const updated = await pool.query(
+      `UPDATE quotes SET dispatch_status = 'entregado', dispatch_updated_at = now(),
+        delivered_at = now(), delivery_code_hash = NULL
+       WHERE id = $1 RETURNING *`,
+      [id]
+    );
+    res.json({ ok: true, quote: decryptQuoteRow(updated.rows[0]) });
+  } catch (err) {
+    console.error('finish delivery error:', err.message);
+    res.status(500).json({ ok: false, error: 'No se pudo finalizar la entrega.' });
   }
 });
 

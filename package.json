@@ -17,7 +17,8 @@
     "migrate:superadmin": "node db/migrate-superadmin.js",
     "migrate:password-reset": "node db/migrate-password-reset.js",
     "migrate:job-title": "node db/migrate-job-title.js",
-    "migrate:dispatch-inventory": "node db/migrate-dispatch-inventory.js"
+    "migrate:dispatch-inventory": "node db/migrate-dispatch-inventory.js",
+    "migrate:delivery-code": "node db/migrate-delivery-code.js"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",
