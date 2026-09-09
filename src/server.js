@@ -1,6 +1,7 @@
 require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
+const helmet = require('helmet');
 const rateLimit = require('express-rate-limit');
 
 const authRoutes = require('./routes/auth');
@@ -11,6 +12,10 @@ const wompiRoutes = require('./routes/wompi');
 const { verifyRecaptcha } = require('./services/recaptcha');
 
 const app = express();
+
+// Esta API solo responde JSON (nunca HTML), asi que la CSP por defecto de helmet no
+// aplica a nada real aqui — lo que si importa son nosniff, Referrer-Policy y HSTS.
+app.use(helmet({ contentSecurityPolicy: false }));
 
 // El limite es mas alto que lo usual porque las fotos de producto subidas desde
 // el panel de administrador viajan como imagen codificada en base64 dentro del JSON.

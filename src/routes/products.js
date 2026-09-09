@@ -18,14 +18,16 @@ function slugify(text) {
     .slice(0, 80);
 }
 
-// image_url acepta tanto un link normal (http/https) como una foto subida desde
-// el panel, guardada como data URI en base64 — por eso el limite es mucho mas
-// alto que el de los demas campos de texto.
+// image_url acepta un link https:// normal o una foto subida desde el panel guardada
+// como data URI en base64 (por eso el limite es mucho mas alto que el de los demas
+// campos de texto) — cualquier otro esquema (http://, javascript:, etc.) se descarta,
+// porque este valor se pinta luego en el catalogo publico para todos los visitantes.
 function sanitizeImageUrl(value) {
   if (!value) return null;
-  const str = String(value).trim();
+  const str = String(value).trim().slice(0, 3000000);
   if (!str) return null;
-  return str.slice(0, 3000000);
+  if (!/^(https:\/\/|data:image\/)/.test(str)) return null;
+  return str;
 }
 
 router.get('/', async function (req, res) {

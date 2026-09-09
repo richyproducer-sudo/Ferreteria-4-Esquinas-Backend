@@ -1,6 +1,11 @@
 const jwt = require('jsonwebtoken');
+const pool = require('../../db/pool');
 
-function requireAuth(req, res, next) {
+// El JWT solo prueba QUIEN es el usuario, no en que estado esta su cuenta ahora mismo:
+// se vuelve a consultar el rol y el "active" reales en cada peticion protegida, para que
+// desactivar una cuenta o quitarle el rol de admin surta efecto de inmediato (y no solo
+// hasta que expire un token de hasta 7 dias que ya fue emitido).
+async function requireAuth(req, res, next) {
   const header = req.headers.authorization || '';
   const token = header.startsWith('Bearer ') ? header.slice(7) : null;
   if (!token) {
@@ -8,7 +13,12 @@ function requireAuth(req, res, next) {
   }
   try {
     const payload = jwt.verify(token, process.env.JWT_SECRET);
-    req.user = payload;
+    const result = await pool.query('SELECT id, role, active FROM users WHERE id = $1', [payload.id]);
+    const row = result.rows[0];
+    if (!row || row.active === false) {
+      return res.status(401).json({ ok: false, error: 'Sesion invalida o expirada.' });
+    }
+    req.user = { id: payload.id, name: payload.name, email: payload.email, role: row.role };
     next();
   } catch (err) {
     return res.status(401).json({ ok: false, error: 'Sesion invalida o expirada.' });
