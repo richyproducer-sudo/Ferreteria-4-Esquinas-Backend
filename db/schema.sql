@@ -74,6 +74,12 @@ CREATE TABLE IF NOT EXISTS quotes (
   delivered_at TIMESTAMPTZ,
   alegra_estimate_id TEXT,
   alegra_synced BOOLEAN NOT NULL DEFAULT false,
+  -- 'contra_entrega' es el flujo de siempre (cotizar y pagar en efectivo al recibir);
+  -- 'wompi' es el pago en linea. payment_status solo importa cuando payment_method='wompi'.
+  payment_method TEXT NOT NULL DEFAULT 'contra_entrega' CHECK (payment_method IN ('contra_entrega','wompi')),
+  payment_status TEXT NOT NULL DEFAULT 'pendiente' CHECK (payment_status IN ('pendiente','pagado','fallido')),
+  wompi_reference TEXT UNIQUE,
+  wompi_transaction_id TEXT,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 

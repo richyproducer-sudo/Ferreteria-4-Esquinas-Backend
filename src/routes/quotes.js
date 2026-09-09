@@ -4,6 +4,7 @@ const rateLimit = require('express-rate-limit');
 const pool = require('../../db/pool');
 const { requireAdmin, requireAuth, optionalAuth } = require('../middleware/auth');
 const alegra = require('../services/alegra');
+const wompi = require('../services/wompi');
 const { encrypt, decrypt } = require('../services/crypto');
 const { verifyRecaptcha } = require('../services/recaptcha');
 
@@ -109,6 +110,42 @@ router.post('/', quoteLimiter, optionalAuth, async function (req, res) {
     res.status(500).json({ ok: false, error: 'No se pudo guardar la cotizacion.' });
   } finally {
     client.release();
+  }
+});
+
+// Genera los datos para abrir el Widget de Wompi sobre una cotizacion ya creada
+// (el total se recalcula del lado del servidor en POST / — aqui solo se firma el
+// monto que ya quedo guardado, nunca uno que mande el cliente). Puede llamarse mas
+// de una vez si el cliente cancela el widget y quiere reintentar: cada llamada
+// genera una referencia nueva.
+router.post('/:id/wompi-checkout', quoteLimiter, async function (req, res) {
+  try {
+    if (!wompi.isConfigured()) {
+      return res.status(503).json({ ok: false, error: 'El pago en linea no esta disponible en este momento.' });
+    }
+    const id = Number(req.params.id);
+    if (!Number.isInteger(id)) return res.status(400).json({ ok: false, error: 'Id invalido.' });
+
+    const existing = await pool.query('SELECT id, subtotal, payment_status FROM quotes WHERE id = $1', [id]);
+    const row = existing.rows[0];
+    if (!row) return res.status(404).json({ ok: false, error: 'Cotizacion no encontrada.' });
+    if (row.payment_status === 'pagado') {
+      return res.status(400).json({ ok: false, error: 'Esta cotizacion ya fue pagada.' });
+    }
+
+    const amountInCents = Math.round(Number(row.subtotal) * 100);
+    const reference = 'f4e-' + id + '-' + nodeCrypto.randomBytes(4).toString('hex');
+
+    await pool.query(
+      "UPDATE quotes SET payment_method = 'wompi', wompi_reference = $1 WHERE id = $2",
+      [reference, id]
+    );
+
+    const checkout = wompi.buildCheckoutData({ reference: reference, amountInCents: amountInCents, currency: 'COP' });
+    res.json({ ok: true, checkout: checkout });
+  } catch (err) {
+    console.error('wompi checkout init error:', err.message);
+    res.status(500).json({ ok: false, error: 'No se pudo iniciar el pago.' });
   }
 });
 
