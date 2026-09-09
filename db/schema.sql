@@ -30,9 +30,23 @@ CREATE TABLE IF NOT EXISTS products (
   image_url TEXT,
   icon TEXT NOT NULL DEFAULT 'herramienta',
   stock_status TEXT NOT NULL DEFAULT 'in' CHECK (stock_status IN ('in','low','out')),
+  -- Cantidad real en bodega (para el seguimiento de inventario); stock_status sigue
+  -- siendo la etiqueta que ve el cliente en el catalogo.
+  stock_quantity INTEGER NOT NULL DEFAULT 0 CHECK (stock_quantity >= 0),
   active BOOLEAN NOT NULL DEFAULT true,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- Historial de entradas/salidas de bodega — el "seguimiento" real: quien movio
+-- cuanto de cada producto y cuando.
+CREATE TABLE IF NOT EXISTS stock_movements (
+  id SERIAL PRIMARY KEY,
+  product_id INTEGER NOT NULL REFERENCES products(id) ON DELETE CASCADE,
+  change_qty INTEGER NOT NULL,
+  reason TEXT,
+  staff_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
 -- customer_name/phone/email tambien van cifrados (misma razon que en users) — un pedido
@@ -45,6 +59,9 @@ CREATE TABLE IF NOT EXISTS quotes (
   customer_email TEXT,
   subtotal NUMERIC(12,2) NOT NULL DEFAULT 0,
   status TEXT NOT NULL DEFAULT 'nueva' CHECK (status IN ('nueva','confirmada','cancelada')),
+  -- Seguimiento del despacho fisico, independiente del estado comercial de arriba.
+  dispatch_status TEXT NOT NULL DEFAULT 'pendiente' CHECK (dispatch_status IN ('pendiente','preparando','despachado','entregado')),
+  dispatch_updated_at TIMESTAMPTZ,
   alegra_estimate_id TEXT,
   alegra_synced BOOLEAN NOT NULL DEFAULT false,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
@@ -75,3 +92,5 @@ CREATE INDEX IF NOT EXISTS idx_quote_items_quote_id ON quote_items(quote_id);
 CREATE INDEX IF NOT EXISTS idx_products_category ON products(category);
 CREATE INDEX IF NOT EXISTS idx_quotes_created_at ON quotes(created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_password_resets_user_id ON password_resets(user_id);
+CREATE INDEX IF NOT EXISTS idx_stock_movements_product_id ON stock_movements(product_id);
+CREATE INDEX IF NOT EXISTS idx_quotes_dispatch_status ON quotes(dispatch_status);

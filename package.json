@@ -16,7 +16,8 @@
     "migrate:apple": "node db/migrate-apple.js",
     "migrate:superadmin": "node db/migrate-superadmin.js",
     "migrate:password-reset": "node db/migrate-password-reset.js",
-    "migrate:job-title": "node db/migrate-job-title.js"
+    "migrate:job-title": "node db/migrate-job-title.js",
+    "migrate:dispatch-inventory": "node db/migrate-dispatch-inventory.js"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",

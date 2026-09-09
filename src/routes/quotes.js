@@ -174,4 +174,25 @@ router.put('/:id/status', requireAdmin, async function (req, res) {
   }
 });
 
+// Seguimiento de despacho: independiente del estado comercial (nueva/confirmada/
+// cancelada) de arriba — esto es "en que va la entrega fisica" del pedido.
+router.put('/:id/dispatch-status', requireAdmin, async function (req, res) {
+  try {
+    const id = Number(req.params.id);
+    const dispatchStatus = req.body && req.body.dispatch_status;
+    if (!Number.isInteger(id) || !['pendiente', 'preparando', 'despachado', 'entregado'].includes(dispatchStatus)) {
+      return res.status(400).json({ ok: false, error: 'Datos invalidos.' });
+    }
+    const updated = await pool.query(
+      'UPDATE quotes SET dispatch_status = $1, dispatch_updated_at = now() WHERE id = $2 RETURNING *',
+      [dispatchStatus, id]
+    );
+    if (updated.rows.length === 0) return res.status(404).json({ ok: false, error: 'Cotizacion no encontrada.' });
+    res.json({ ok: true, quote: decryptQuoteRow(updated.rows[0]) });
+  } catch (err) {
+    console.error('update dispatch status error:', err.message);
+    res.status(500).json({ ok: false, error: 'No se pudo actualizar el despacho.' });
+  }
+});
+
 module.exports = router;
