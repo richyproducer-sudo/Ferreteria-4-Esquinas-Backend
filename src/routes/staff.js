@@ -104,4 +104,25 @@ router.put('/:id/role', requireSuperAdmin, async function (req, res) {
   }
 });
 
+router.delete('/:id', requireSuperAdmin, async function (req, res) {
+  try {
+    const id = Number(req.params.id);
+    if (!Number.isInteger(id)) return res.status(400).json({ ok: false, error: 'Id invalido.' });
+    if (id === req.user.id) {
+      return res.status(400).json({ ok: false, error: 'No puedes eliminar tu propia cuenta.' });
+    }
+    // Los productos no dependen del staff; las cotizaciones (quotes.user_id) tienen
+    // ON DELETE SET NULL, asi que eliminar una cuenta nunca rompe su historial.
+    const deleted = await pool.query(
+      'DELETE FROM users WHERE id = $1 AND role IN (\'admin\',\'superadmin\') RETURNING id',
+      [id]
+    );
+    if (deleted.rows.length === 0) return res.status(404).json({ ok: false, error: 'Cuenta no encontrada.' });
+    res.json({ ok: true });
+  } catch (err) {
+    console.error('delete staff error:', err.message);
+    res.status(500).json({ ok: false, error: 'No se pudo eliminar la cuenta.' });
+  }
+});
+
 module.exports = router;
