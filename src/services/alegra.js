@@ -112,4 +112,38 @@ async function syncQuoteToAlegra({ customerName, customerPhone, customerEmail, i
   return estimate;
 }
 
-module.exports = { isConfigured, syncQuoteToAlegra };
+/**
+ * Trae TODO el catalogo de items de Alegra (paginado de a 30, el maximo que
+ * acepta su API). Se usa para el boton "Sincronizar con Alegra" del panel.
+ * Primero consulta metadata=true para saber el total real (una ferreteria
+ * puede tener miles de items entre tallas/colores/referencias) y usa ese
+ * numero como tope real de paginas, en vez de un limite fijo adivinado.
+ */
+async function fetchAllItems() {
+  if (!isConfigured()) return [];
+  const pageSize = 30;
+
+  const first = await alegraFetch('/items?metadata=true&limit=' + pageSize + '&start=0', { method: 'GET' });
+  const total = first && first.metadata && Number.isFinite(first.metadata.total) ? first.metadata.total : null;
+  const firstPage = (first && Array.isArray(first.data)) ? first.data : [];
+
+  const all = firstPage.slice();
+  let start = pageSize;
+  // Tope de seguridad = paginas necesarias para el total real + margen, para
+  // nunca quedar en un ciclo infinito si la API responde algo inesperado.
+  const maxPages = total !== null ? Math.ceil(total / pageSize) + 5 : 300;
+
+  for (let page = 1; page < maxPages; page++) {
+    if (total !== null && all.length >= total) break;
+    const data = await alegraFetch('/items?limit=' + pageSize + '&start=' + start, { method: 'GET' });
+    if (!Array.isArray(data) || data.length === 0) break;
+    all.push(...data);
+    if (data.length < pageSize) break;
+    start += pageSize;
+    // Pausa breve entre paginas para no saturar la API de Alegra.
+    await new Promise(function (resolve) { setTimeout(resolve, 200); });
+  }
+  return all;
+}
+
+module.exports = { isConfigured, syncQuoteToAlegra, fetchAllItems };

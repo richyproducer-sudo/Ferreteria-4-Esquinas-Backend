@@ -33,6 +33,9 @@ CREATE TABLE IF NOT EXISTS products (
   -- Cantidad real en bodega (para el seguimiento de inventario); stock_status sigue
   -- siendo la etiqueta que ve el cliente en el catalogo.
   stock_quantity INTEGER NOT NULL DEFAULT 0 CHECK (stock_quantity >= 0),
+  -- Id del item en Alegra cuando el producto vino de una sincronizacion; permite
+  -- volver a sincronizar (actualizar en vez de duplicar) sin ambiguedad.
+  alegra_item_id TEXT UNIQUE,
   active BOOLEAN NOT NULL DEFAULT true,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now()

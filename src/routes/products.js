@@ -2,6 +2,7 @@ const express = require('express');
 const pool = require('../../db/pool');
 const { requireAdmin } = require('../middleware/auth');
 const { decrypt } = require('../services/crypto');
+const alegra = require('../services/alegra');
 
 const router = express.Router();
 
@@ -169,6 +170,87 @@ router.get('/:id/movements', requireAdmin, async function (req, res) {
   } catch (err) {
     console.error('list movements error:', err.message);
     res.status(500).json({ ok: false, error: 'No se pudo cargar el historial.' });
+  }
+});
+
+// Trae el catalogo completo de Alegra y lo refleja en el sitio: crea o
+// actualiza (por alegra_item_id) cada producto con su precio y existencia
+// real, y desactiva cualquier producto que NO venga de Alegra (los de
+// muestra originales del sitio), para que el catalogo publico solo muestre
+// el inventario real de la ferreteria.
+// Se sube en un solo INSERT ... ON CONFLICT por lote (en vez de 2 consultas por
+// producto) porque con el catalogo real (500+ items) el enfoque de una consulta
+// por producto tardaba mas de 3 minutos y la peticion nunca alcanzaba a terminar.
+const SYNC_BATCH_SIZE = 200;
+
+router.post('/sync-alegra', requireAdmin, async function (req, res) {
+  try {
+    if (!alegra.isConfigured()) {
+      return res.status(503).json({ ok: false, error: 'Alegra no esta configurado todavia.' });
+    }
+
+    const items = await alegra.fetchAllItems();
+    const rows = [];
+    for (const item of items) {
+      const name = String(item.name || '').trim().slice(0, 200);
+      if (!name) continue;
+
+      const priceEntry = Array.isArray(item.price) ? item.price.find(function (p) { return p.main; }) || item.price[0] : null;
+      const price = priceEntry ? Math.round(Number(priceEntry.price) || 0) : 0;
+
+      const qty = item.inventory && Number.isFinite(item.inventory.availableQuantity)
+        ? Math.max(0, Math.round(item.inventory.availableQuantity))
+        : 0;
+      const stockStatus = qty <= 0 ? 'out' : (qty <= 5 ? 'low' : 'in');
+      const slug = slugify(name) + '-a' + item.id;
+
+      rows.push([slug, name, price, stockStatus, qty, String(item.id)]);
+    }
+
+    let created = 0;
+    let updated = 0;
+
+    for (let i = 0; i < rows.length; i += SYNC_BATCH_SIZE) {
+      const batch = rows.slice(i, i + SYNC_BATCH_SIZE);
+      const values = [];
+      const placeholders = batch.map(function (row, idx) {
+        const base = idx * 6;
+        values.push(...row);
+        return `($${base + 1},$${base + 2},'general','unidad',$${base + 3},'herramienta',$${base + 4},$${base + 5},$${base + 6})`;
+      }).join(',');
+
+      const result = await pool.query(
+        `INSERT INTO products (slug, name, category, unit, price, icon, stock_status, stock_quantity, alegra_item_id)
+         VALUES ${placeholders}
+         ON CONFLICT (alegra_item_id) DO UPDATE SET
+           name = EXCLUDED.name,
+           price = EXCLUDED.price,
+           stock_quantity = EXCLUDED.stock_quantity,
+           stock_status = EXCLUDED.stock_status,
+           active = true,
+           updated_at = now()
+         RETURNING (xmax = 0) AS inserted`,
+        values
+      );
+      for (const r of result.rows) {
+        if (r.inserted) created++; else updated++;
+      }
+    }
+
+    const deactivated = await pool.query(
+      "UPDATE products SET active = false, updated_at = now() WHERE alegra_item_id IS NULL AND active = true RETURNING id"
+    );
+
+    res.json({
+      ok: true,
+      total_alegra: items.length,
+      created,
+      updated,
+      deactivated_non_alegra: deactivated.rows.length
+    });
+  } catch (err) {
+    console.error('sync alegra error:', err.message);
+    res.status(500).json({ ok: false, error: 'No se pudo sincronizar con Alegra: ' + err.message });
   }
 });
 
